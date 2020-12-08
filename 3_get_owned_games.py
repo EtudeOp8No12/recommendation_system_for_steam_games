@@ -1,10 +1,9 @@
-import requests
-import time
-import re
 import os
+import time
 import json
 import threading
 import queue
+import requests
 import yaml
 from tqdm.auto import tqdm
 from sqlalchemy import create_engine
@@ -12,8 +11,8 @@ from sqlalchemy.types import BigInteger, Integer
 
 import pandas as pd
 
-# check 
-# https://steamcommunity.com/dev 
+# check
+# https://steamcommunity.com/dev
 # https://developer.valvesoftware.com/wiki/Steam_Web_API
 
 def main():
@@ -26,17 +25,15 @@ def main():
     db_password = config['mysql']['password']
     db_endpoint = config['mysql']['endpoint']
     db_database = config['mysql']['database']
-    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'.format(db_username, db_password, db_endpoint, db_database))
-    
+    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'\
+        .format(db_username, db_password, db_endpoint, db_database))
+
     get_owned_games(api_key)
     save_owned_games(engine)
 
-
-
 def split_list(l, n):
     for i in range(0, len(l), n):
-        yield l[i:i + n]
-
+        yield l[i:i+n]
 
 def worker_get_owned_games(lst_user_id, api_key, q):
     dic_temp = {}
@@ -44,12 +41,12 @@ def worker_get_owned_games(lst_user_id, api_key, q):
         for i in range(3):
             try:
                 r = requests.get(
-                    url = 'http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/', 
+                    url = 'http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/',
                     params = {
                         'key' : api_key,
                         'steamid' : user_id,
                         'include_played_free_games': True,
-                        'format' : 'json' 
+                        'format' : 'json'
                     }
                 )
                 dic_owned_games = r.json().get('response').get('games')
@@ -58,7 +55,7 @@ def worker_get_owned_games(lst_user_id, api_key, q):
                 break
             except Exception as e:
                 print(user_id, e)
-                time.sleep(5) 
+                time.sleep(5)
 
     q.put(dic_temp)
 
@@ -91,8 +88,6 @@ def get_owned_games(api_key):
             f.write(json.dumps({k:v}))
             f.write('\n')
 
-
-
 def save_owned_games(engine):
     dic_owned_games = {}
     with open('data/steam_owned_games.txt', 'r') as f:
@@ -112,28 +107,17 @@ def save_owned_games(engine):
                         })
     df_owned_games = pd.DataFrame.from_dict(dic_owned_games, 'index')
     df_owned_games.to_sql(
-        'steam_owned_games', 
-        engine, 
-        if_exists='replace', 
-        index=False, 
+        'steam_owned_games',
+        engine,
+        if_exists='replace',
+        index=False,
         dtype={
             'user_id': BigInteger(),
             'app_id': Integer(),
             'playtime_forever': Integer()
-        }, 
+        },
         chunksize = 10000
     )
 
-
-
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
-
-

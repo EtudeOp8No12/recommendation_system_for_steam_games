@@ -1,23 +1,22 @@
-import requests, re, os
-from tqdm.auto import tqdm
+import os
+import re
+import requests
+
 import pandas as pd
 import numpy as np
 import yaml
 
+from tqdm.auto import tqdm
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel,cosine_similarity
-from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import linear_kernel
 from sklearn.preprocessing import QuantileTransformer
 
 from pyspark.ml.recommendation import ALS
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
-
-
-
 
 def main():
 
@@ -29,19 +28,17 @@ def main():
     db_password = config['mysql']['password']
     db_endpoint = config['mysql']['endpoint']
     db_database = config['mysql']['database']
-    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'.format(db_username, db_password, db_endpoint, db_database))
+    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'\
+        .format(db_username, db_password, db_endpoint, db_database))
 
     recommendation_popularity_based(engine)
     recommendation_content_based(engine)
     recommendation_item_based(engine)
     recommendation_als_based(engine)
 
-
 #####################################
 ##### Model 1: Popularity Based #####
 #####################################
-
-
 def recommendation_popularity_based(engine):
     url = 'https://store.steampowered.com/stats'
     r = requests.get(url)
@@ -59,29 +56,29 @@ def recommendation_popularity_based(engine):
     df_popularity_based_result = pd.DataFrame.from_dict(dic_current_player, 'index')
     df_popularity_based_result.index.name = 'app_id'
     df_popularity_based_result.reset_index(inplace=True)
-    df_popularity_based_result.to_sql('recommended_games_popularity_based', engine, if_exists='replace', index = False)
-
+    df_popularity_based_result.to_sql('recommended_games_popularity_based', engine,\
+        if_exists='replace', index = False)
 
 #####################################
 ##### Model 2: Content Based #####
 #####################################
-
 def recommendation_content_based(engine):
 
     df_game_description = pd.read_sql_query(
         '''
-            SELECT 
-                app_id, 
-                short_description 
-            FROM steam_app_details 
+            SELECT
+                app_id,
+                short_description
+            FROM steam_app_details
             WHERE short_description IS NOT NULL
-            AND type = "game" 
+            AND type = "game"
             AND name IS NOT NULL
-            AND release_date <= CURDATE() 
+            AND release_date <= CURDATE()
             AND initial_price IS NOT NULL
         ''', engine)
 
-    tfidf = TfidfVectorizer(strip_accents='unicode',stop_words='english').fit_transform(df_game_description['short_description'].tolist())
+    tfidf = TfidfVectorizer(strip_accents='unicode',stop_words='english')\
+    .fit_transform(df_game_description['short_description'].tolist())
 
     lst_app_id = df_game_description['app_id'].tolist()
     dic_recomended = {}
@@ -94,19 +91,20 @@ def recommendation_content_based(engine):
     df_content_based_results = pd.DataFrame.from_dict(dic_recomended, 'index')
     df_content_based_results.index.name = 'app_id'
     df_content_based_results.reset_index(inplace=True)
-    df_content_based_results.to_sql('recommended_games_content_based',engine,if_exists='replace', index = False)
+    df_content_based_results.to_sql('recommended_games_content_based',engine\
+        ,if_exists='replace', index = False)
 
-
-
-# Model 3: item based
+#####################################
+##### Model 3: item based #####
+#####################################
 def recommendation_item_based(engine):
-
     df_purchase = pd.read_sql_query(
         '''
-        SELECT app_id, user_id         
+        SELECT app_id, user_id
         FROM steam_owned_games
         WHERE playtime_forever > 15
-        ''', engine).pivot_table(values = 'user_id', index = ['app_id'], columns = ['user_id'], aggfunc = len, fill_value = 0)
+        ''', engine).pivot_table(values = 'user_id', index = ['app_id'],\
+        columns = ['user_id'], aggfunc = len, fill_value = 0)
 
     purchase_matrix = df_purchase.values
     lst_app_id = df_purchase.index
@@ -120,20 +118,19 @@ def recommendation_item_based(engine):
     df_item_based_result = pd.DataFrame.from_dict(dic_recomended_item_based, 'index')
     df_item_based_result.index.name = 'app_id'
     df_item_based_result.reset_index(inplace=True)
-    df_item_based_result.to_sql('recommended_games_item_based', engine, if_exists='replace', chunksize = 1000, index = False)
+    df_item_based_result.to_sql('recommended_games_item_based', engine,\
+        if_exists='replace', chunksize = 1000, index = False)
 
-
-
-# Model 4: Collaborative Filtering
-
+###############################################
+##### Model 4: Collaborative Filtering #####
+###############################################
 def recommendation_als_based(engine):
-
-    config = yaml.safe_load(open('{}/config.yaml'.format(os.path.dirname(os.path.realpath(__file__)))))
+    config = yaml.safe_load(open('{}/config.yaml'\
+        .format(os.path.dirname(os.path.realpath(__file__)))))
     db_username = config['mysql']['username']
     db_password = config['mysql']['password']
     db_endpoint = config['mysql']['endpoint']
     db_database = config['mysql']['database']
-
 
     sc = SparkContext()
     spark = SparkSession(sc)
@@ -144,13 +141,11 @@ def recommendation_als_based(engine):
                 .option("driver", "com.mysql.cj.jdbc.Driver")\
                 .load().createOrReplaceTempView('user_inventory')
 
-
     spark.read.format("jdbc").option("url", "jdbc:mysql://{}/{}".format(db_endpoint, db_database))\
                 .option("user", db_username).option("password", db_password)\
                 .option("dbtable", "steam_app_details")\
                 .option("driver", "com.mysql.cj.jdbc.Driver")\
                 .load().createOrReplaceTempView('game_steam_app')
-
 
     df_user_playtime = spark.sql('''
         SELECT 
@@ -161,8 +156,8 @@ def recommendation_als_based(engine):
         FROM user_inventory
         WHERE playtime_forever >= 5
     ''')
-    
-    # Transform rating using quantiles transformer -- better performance than using LOG transformation
+
+    # Transform rating using quantiles transformer-better performance than using LOG transformation
     qt = QuantileTransformer() # default n_quantiles=1000
     df_user_playtime.loc[:, ['rating']] = qt.fit_transform(pd.DataFrame(df_user_playtime['rating']))
     
@@ -174,34 +169,30 @@ def recommendation_als_based(engine):
         AND type = "game" 
         AND initial_price IS NOT NULL
     ''')
-    
-    df_user_inventory = df_user_playtime.join(df_valid_games, df_user_playtime['item'] == df_valid_games['app_id'], 'inner').select('user','user_id','item','rating')
 
-    dic_real_user_id = df_user_inventory.select('user','user_id').toPandas().set_index('user')['user_id'].to_dict()
+    df_user_inventory = df_user_playtime \
+    .join(df_valid_games, df_user_playtime['item'] == df_valid_games['app_id'], 'inner')\
+    .select('user','user_id','item','rating')
+
+    dic_real_user_id = df_user_inventory\
+    .select('user','user_id').toPandas().set_index('user')['user_id'].to_dict()
+
     als = ALS(rank = 10)
     model = als.fit(df_user_inventory)
     recommended_games = model.recommendForAllUsers(10)
     dic_recomended_als_based = {}
-    for user, lst_recommended_games in recommended_games.select('user', 'recommendations.item').toPandas().set_index('user')['item'].to_dict().items():
+    for user, lst_recommended_games in recommended_games\
+    .select('user', 'recommendations.item').toPandas().set_index('user')['item'].to_dict().items():
         user_id = dic_real_user_id.get(user)
         dic_recomended_als_based[user_id] = {}
         for i, app_id in enumerate(lst_recommended_games):
             dic_recomended_als_based[user_id].update({i:app_id})
 
-
     df_als_based_result = pd.DataFrame.from_dict(dic_recomended_als_based, 'index')
     df_als_based_result.index.name = 'user_id'
     df_als_based_result.reset_index(inplace=True)
-    df_als_based_result.to_sql('recommended_games_als_based', engine, if_exists='replace', chunksize = 1000, index = False)
-
-
-
-
+    df_als_based_result.to_sql('recommended_games_als_based', engine,\
+        if_exists='replace', chunksize = 1000, index = False)
 
 if __name__ == '__main__':
     main()
-
-
-
-
-

@@ -34,4 +34,4 @@ for steam_id in steam_user_id_1:
 steam_user_id_combine = list(steam_user_id_1) + list(steam_user_id_2)
 with open("steam_user_id.txt", "a") as text_file:
 	for c in steam_user_id_combine:
-			text_file.write(str(c)+ "\n")
+		text_file.write(str(c)+ "\n")

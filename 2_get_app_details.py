@@ -1,11 +1,13 @@
-import requests
 import time
+from datetime import datetime
 import json
 import os
+import requests
+
 import yaml
 import pandas as pd
 from tqdm.auto import tqdm
-from datetime import datetime
+
 from sqlalchemy import create_engine
 from sqlalchemy.types import Integer
 
@@ -16,10 +18,7 @@ def main():
     get_app_details()
     save_app_details()
 
-
-
 def get_app_details():
-    
     url = 'http://api.steampowered.com/ISteamApps/GetAppList/v2'
     r = requests.get(url)
     dic_steam_app = r.json()
@@ -29,7 +28,7 @@ def get_app_details():
             for i in range(3):
                 try:
                     r = requests.get(
-                        url = 'http://store.steampowered.com/api/appdetails/', 
+                        url = 'http://store.steampowered.com/api/appdetails/',
                         params = { 'appids' : app_id }
                     )
                     dic_app_data = r.json()
@@ -40,8 +39,6 @@ def get_app_details():
                 except Exception as e:
                     print(app_id, e)
 
-
-
 def save_app_details():
     dic_app_details = {}
 
@@ -50,23 +47,23 @@ def save_app_details():
     db_password = config['mysql']['password']
     db_endpoint = config['mysql']['endpoint']
     db_database = config['mysql']['database']
-    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'.format(db_username, db_password, db_endpoint, db_database))
-	
+    engine = create_engine('mysql+pymysql://{}:{}@{}/{}?charset=utf8mb4'\
+        .format(db_username, db_password, db_endpoint, db_database))
+
     with open('data/steam_app_details.txt', 'r') as f:
         for i in tqdm(f.readlines(), desc='Process App Details'):
             try:
                 for app_id, dic_response in json.loads(i).items():
                     if dic_response.get('success'):
-                        dic_app_details[app_id] = parse_steam_app_details(dic_response.get('data',{}))
+                        dic_app_details[app_id] = \
+                        parse_steam_app_details(dic_response.get('data',{}))
             except:
                 pass
     df_steam_app = pd.DataFrame.from_dict(dic_app_details, 'index')
     df_steam_app.index.name = 'app_id'
     df_steam_app.reset_index(inplace=True)
-    df_steam_app.to_sql('steam_app_details', engine, if_exists='replace', index=False, chunksize = 10000, dtype={'app_id':Integer(), 'required_age':Integer()})
-
-    
-
+    df_steam_app.to_sql('steam_app_details', engine, if_exists='replace', \
+        index=False, chunksize = 10000, dtype={'app_id':Integer(), 'required_age':Integer()})
 
 def parse_steam_app_details(app_data):
     developers = ', '.join(app_data.get('developers', []))
@@ -95,8 +92,9 @@ def parse_steam_app_details(app_data):
         genres = None
     supported_languages = app_data.get('supported_languages')
     if supported_languages:
-        supported_languages = supported_languages.replace('<strong>*</strong>', '').replace('<br>languages with full audio support','')
-    if app_data.get('is_free') == True:
+        supported_languages = supported_languages.replace('<strong>*</strong>', '')\
+        .replace('<br>languages with full audio support','')
+    if app_data.get('is_free'):
         initial_price = 0
         currency = 'USD'
     else:
@@ -107,12 +105,12 @@ def parse_steam_app_details(app_data):
             initial_price = None
             currency = None
 
-    if app_data.get('release_date',{}).get('coming_soon') == False:
+    if not app_data.get('release_date',{}).get('coming_soon'):
         release_date = app_data.get('release_date',{}).get('date')
         if release_date:
             try:
                 release_date = datetime.strptime(release_date, '%b %d, %Y').date()
-            except Exception as e:
+            except:
                 try:
                     release_date = datetime.strptime(release_date, '%d %b, %Y').date()
                 except:
@@ -144,11 +142,5 @@ def parse_steam_app_details(app_data):
 
     return dic_steam_app
 
-
-
-
 if __name__ == '__main__':
-
     main()
-
-
